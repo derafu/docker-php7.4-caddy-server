@@ -21,19 +21,25 @@ RUN \
     debian-archive-keyring \
     debian-keyring \
     default-libmysqlclient-dev \
+    gettext \
     git \
     gnupg \
     jq \
+    libc-client-dev \
     libfreetype6-dev \
     libgd-dev \
+    libgearman-dev \
+    libgmp-dev \
     libicu-dev \
     libjpeg62-turbo-dev \
+    libkrb5-dev \
     libmemcached-dev \
     libonig-dev \
     libpng-dev \
     libpq-dev \
     libsqlite3-dev \
     libxml2-dev \
+    libyaml-dev \
     libzip-dev \
     logrotate \
     lsb-release \
@@ -58,10 +64,14 @@ RUN \
     \
     # Install PHP extensions.
     && docker-php-ext-configure gd --with-freetype=/usr/include/ --with-jpeg=/usr/include/ \
+    && docker-php-ext-configure imap --with-kerberos --with-imap-ssl \
     && docker-php-ext-install -j$(nproc) \
         bcmath \
         exif \
         gd \
+        gettext \
+        gmp \
+        imap \
         intl \
         mbstring \
         opcache \
@@ -74,9 +84,9 @@ RUN \
         zip \
         && pecl install redis && docker-php-ext-enable redis \
     \
-    # Install Memcached.
-    && pecl install memcached \
-    && docker-php-ext-enable memcached \
+    # Install Gearman, Memcached and YAML.
+    && pecl install gearman memcached yaml \
+    && docker-php-ext-enable gearman memcached yaml \
     \
     # Install and configure Xdebug.
     && pecl install xdebug-2.9.8 \
