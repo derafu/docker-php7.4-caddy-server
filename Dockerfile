@@ -39,6 +39,7 @@ RUN \
     libpq-dev \
     libsqlite3-dev \
     libxml2-dev \
+    libxmlrpc-epi-dev \
     libyaml-dev \
     libzip-dev \
     logrotate \
@@ -81,6 +82,7 @@ RUN \
         soap \
         sockets \
         xml \
+        xmlrpc \
         zip \
         && pecl install redis && docker-php-ext-enable redis \
     \
