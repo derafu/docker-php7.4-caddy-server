@@ -28,8 +28,8 @@ A modern Docker setup for hosting PHP websites with Caddy web server and SSH acc
 
 1. Clone this repository:
    ```bash
-   git clone https://github.com/derafu/docker-php-caddy-server.git -b php7.4 docker-php-caddy-server74
-   cd docker-php-caddy-server74
+   git clone https://github.com/derafu/docker-php74-caddy-server.git
+   cd docker-php74-caddy-server
    ```
 
 2. Add your SSH public key to `config/ssh/authorized_keys` for admin, and default deployment, access:
