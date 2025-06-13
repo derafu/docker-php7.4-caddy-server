@@ -18,3 +18,13 @@ services:
       - "${HTTPS_PORT:-8443}:443"
       - "${SSH_PORT:-2222}:22"
       - "${MANAGER_PORT:-9090}:9090"
+
+    # Networks.
+    networks:
+      - webserver-net
+
+# Networks.
+networks:
+  webserver-net:
+    name: webserver-net
+    driver: bridge

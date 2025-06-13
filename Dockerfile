@@ -21,9 +21,11 @@ RUN \
     debian-archive-keyring \
     debian-keyring \
     default-libmysqlclient-dev \
+    dnsutils \
     gettext \
     git \
     gnupg \
+    iproute2 \
     jq \
     libc-client-dev \
     libfreetype6-dev \
@@ -46,13 +48,20 @@ RUN \
     lsb-release \
     mutt \
     nano \
+    net-tools \
+    nmap \
     openssh-server \
     rsync \
     screen \
     sudo \
     supervisor \
+    tcpdump \
+    telnet \
+    traceroute \
     unzip \
     vim \
+    wget \
+    whois \
     zip \
     zlib1g-dev \
     \
