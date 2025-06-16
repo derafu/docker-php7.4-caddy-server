@@ -15,6 +15,7 @@ RUN \
     apt-get update && apt-get install -y --no-install-recommends \
     apt-transport-https \
     at \
+    bind9-dnsutils \
     ca-certificates \
     cron \
     curl \
@@ -26,6 +27,7 @@ RUN \
     git \
     gnupg \
     iproute2 \
+    iputils-ping \
     jq \
     libc-client-dev \
     libfreetype6-dev \
