@@ -37,6 +37,7 @@ RUN \
     libicu-dev \
     libjpeg62-turbo-dev \
     libkrb5-dev \
+    libmcrypt-dev \
     libmemcached-dev \
     libonig-dev \
     libpng-dev \
@@ -100,6 +101,10 @@ RUN \
     # Install Gearman, Memcached and YAML.
     && pecl install gearman memcached yaml \
     && docker-php-ext-enable gearman memcached yaml \
+    \
+    # Install mcrypt extension for PHP 7.4.
+    && pecl install mcrypt-1.0.4 \
+    && docker-php-ext-enable mcrypt \
     \
     # Install and configure Xdebug.
     && pecl install xdebug-2.9.8 \
