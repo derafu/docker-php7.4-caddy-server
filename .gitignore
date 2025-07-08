@@ -1,5 +1,4 @@
 deployer/
-sites/
 docker-compose.override.yml
 config/ssh/authorized_keys
 config/ssh/id_rsa
