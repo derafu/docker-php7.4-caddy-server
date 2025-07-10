@@ -198,7 +198,7 @@ COPY config/logrotate/deployer /etc/logrotate.d/deployer
 COPY config/cron/logrotate /etc/cron.d/logrotate
 
 # Configure Supervisor.
-COPY config/supervisor/supervisord.conf /etc/supervisor/conf.d/supervisord.conf
+COPY config/supervisor/supervisord.conf /etc/supervisor/supervisord.conf
 
 # Use an entrypoint.
 COPY entrypoint.sh /usr/local/bin/entrypoint.sh
@@ -206,4 +206,4 @@ RUN chmod +x /usr/local/bin/entrypoint.sh
 ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
 
 # Start supervisor (default process of the container).
-CMD ["/usr/bin/supervisord", "-c", "/etc/supervisor/conf.d/supervisord.conf"]
+CMD ["/usr/bin/supervisord", "-c", "/etc/supervisor/supervisord.conf"]
