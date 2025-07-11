@@ -1,6 +1,6 @@
-deployer/
-docker-compose.override.yml
+.env
 config/ssh/authorized_keys
 config/ssh/id_rsa
 config/ssh/id_rsa.pub
-.env
+deployer/
+docker-compose.override.yml

@@ -4,18 +4,11 @@
 # This file is used to configure the docker container for the Derafu Sites Server.
 #
 
-# Name of the docker container.
-name: ${SERVER_NAME:-derafu-sites-server74}
-
 # Services.
 services:
 
   # Webserver container.
   webserver:
-
-    # Capabilities.
-    cap_add:
-      - SYS_ADMIN
 
     # Build the container from the Dockerfile.
     build:
@@ -29,11 +22,11 @@ services:
         DEPLOYER_HOST: ${DEPLOYER_HOST:-}
 
     # Name of the container.
-    container_name: ${SERVER_NAME:-derafu-sites-server74}-php-caddy
+    container_name: ${SERVER_NAME:-php74-caddy}
 
     # Environment variables.
     environment:
-      SERVER_NAME: ${SERVER_NAME:-derafu-sites-server74}-php-caddy
+      SERVER_NAME: ${SERVER_NAME:-php74-caddy}
       CADDY_DEBUG: ${CADDY_DEBUG:-}
       CADDY_EMAIL: ${CADDY_EMAIL:-admin@example.com}
       CADDY_LOG_SIZE: ${CADDY_LOG_SIZE:-100mb}

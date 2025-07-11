@@ -1,28 +1,6 @@
 #!/bin/bash
 set -e
 
-# Function to set the container hostname dynamically.
-set-container-hostname() {
-    local server_name="$1"
-    local caddy_debug="$2"
-
-    local random_id
-    random_id=$(shuf -i 100000-999999 -n 1)
-
-    local env_suffix
-    if [ -z "$caddy_debug" ]; then
-        env_suffix="prod"
-    else
-        env_suffix="dev"
-    fi
-
-    local hostname_value="${server_name}-$env_suffix-$random_id"
-
-    echo "Setting hostname to: $hostname_value"
-    hostname "$hostname_value"
-    echo "127.0.0.1 $hostname_value" >> /etc/hosts
-}
-
 # Function to install or update Deployer.
 deployer-install() {
     local dir="$1"
@@ -55,11 +33,9 @@ deployer-install() {
 # Show the current user.
 echo "Current user: $(whoami)"
 
-# Set the hostname dynamically.
-set-container-hostname "${SERVER_NAME:-derafu-sites-server74-php-caddy}" "$CADDY_DEBUG"
-
 # Install Deployer.
-#deployer-install "$DEPLOYER_DIR"
+# TODO: Uncomment this when the deployer is ready for PHP 7.4.
+# deployer-install "$DEPLOYER_DIR"
 
 # Run the main process (by default supervisord).
 exec "$@"
