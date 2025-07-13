@@ -39,6 +39,7 @@ RUN \
     libkrb5-dev \
     libmcrypt-dev \
     libmemcached-dev \
+    libnss3-tools \
     libonig-dev \
     libpng-dev \
     libpq-dev \
