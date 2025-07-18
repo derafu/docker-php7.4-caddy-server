@@ -9,8 +9,6 @@
 	{$CADDY_DEBUG}
 	email {$CADDY_EMAIL}
 
-	trusted_proxies private_ranges
-
 	on_demand_tls {
 		ask http://localhost:9090/api/ask
 	}
