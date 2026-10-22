@@ -236,6 +236,13 @@ RUN set -eux; \
 
 STOPSIGNAL SIGQUIT
 
+# These make this stage runnable on its own (e.g. when published and used
+# standalone, as `ghcr.io/derafu/php:7.4.34-derafu-fpm`); stage 2 always
+# overrides both with its own, so this has no effect on the full image.
+ENTRYPOINT ["docker-php-entrypoint"]
+EXPOSE 9000
+CMD ["php-fpm"]
+
 #
 # Stage 2: unchanged from before this patched-PHP work — same Caddy/sudo/
 # SSH/PHP-FPM hardening, just built on the patched PHP above instead of the
