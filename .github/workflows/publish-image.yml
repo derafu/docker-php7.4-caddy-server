@@ -70,9 +70,6 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@v4
 
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@v3
-
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
@@ -89,7 +86,12 @@ jobs:
           context: .
           target: ${{ matrix.target }}
           build-args: ${{ matrix.build_args }}
-          platforms: linux/amd64,linux/arm64
+          # amd64 only for now: GitHub's runners are amd64 native (no
+          # emulation), and compiling PHP from source under QEMU for arm64
+          # was failing intermittently near the end of ~60min builds. This
+          # is meant to be temporary infrastructure anyway (until the
+          # migration to PHP 8.5), not worth hardening multi-arch for.
+          platforms: linux/amd64
           push: true
           tags: ${{ matrix.tags }}
           cache-from: type=gha
