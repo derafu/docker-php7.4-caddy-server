@@ -1,15 +1,16 @@
-# Base image.
-FROM php:7.4-fpm
-
-# Arguments.
-ARG CADDY_DEBUG=
-ARG OPCACHE_ENABLE=1
-ARG XDEBUG_ENABLE=0
-ARG NETWORK_TOOLS_ENABLE=0
-ARG PHP_DISABLE_FUNCTIONS=
-ARG WWW_ROOT_PATH=/var/www/sites
-ARG WWW_USER=admin
-ARG WWW_GROUP=www-data
+#
+# Stage 1: a patched PHP 7.4, built from PHP's own security backport branch
+# for CVE-2026-109618/CVE-2026-109619 instead of the (unpatched, for this
+# CVE) official php:7.4-fpm image. PHP 7.4 is end-of-life, so php.net never
+# publishes this as an official release; the backport exists only as a git
+# branch. This follows the exact build recipe docker-library/php used for
+# php:7.4-fpm on bullseye (base image, build flags, ./configure options),
+# swapping only how the source is obtained: a pinned commit on that branch
+# (reviewed in full before pinning it), not the 7.4.33 release tarball, so
+# there's no PGP signature to verify here the way an official release has.
+# PHP_EXTRA_VERSION marks the resulting build as non-official.
+#
+FROM debian:bullseye-slim AS php74-patched
 
 # Debian bullseye's live apt mirrors (deb.debian.org) no longer serve it;
 # switch to the point-in-time snapshot the base image already ships
@@ -20,6 +21,237 @@ RUN sed -i \
         -e '/^# deb http:\/\/snapshot\.debian\.org/s/^# //' \
         /etc/apt/sources.list \
     && echo 'Acquire::Check-Valid-Until "false";' > /etc/apt/apt.conf.d/99no-check-valid-until
+
+# Prevent Debian's own PHP packages from being installed.
+RUN set -eux; \
+    { \
+        echo 'Package: php*'; \
+        echo 'Pin: release *'; \
+        echo 'Pin-Priority: -1'; \
+    } > /etc/apt/preferences.d/no-debian-php
+
+# Dependencies required for running "phpize" (kept installed: the main
+# stage's extensions need them again later), plus git (to fetch the patched
+# source) and bison (building from a git checkout, unlike from a release
+# tarball, requires regenerating the parser/lexer and configure script).
+ENV PHPIZE_DEPS \
+        autoconf \
+        bison \
+        dpkg-dev \
+        file \
+        g++ \
+        gcc \
+        git \
+        libc-dev \
+        make \
+        pkg-config \
+        re2c
+
+RUN set -eux; \
+    apt-get update; \
+    apt-get install -y --no-install-recommends \
+        $PHPIZE_DEPS \
+        ca-certificates \
+        curl \
+    ; \
+    rm -rf /var/lib/apt/lists/*
+
+ENV PHP_INI_DIR /usr/local/etc/php
+RUN set -eux; \
+    mkdir -p "$PHP_INI_DIR/conf.d"; \
+    [ ! -d /var/www/html ]; \
+    mkdir -p /var/www/html; \
+    chown www-data:www-data /var/www/html; \
+    chmod 777 /var/www/html
+
+# Same hardening flags docker-library/php uses for this image.
+ENV PHP_CFLAGS="-fstack-protector-strong -fpic -fpie -O2 -D_LARGEFILE_SOURCE -D_FILE_OFFSET_BITS=64"
+ENV PHP_CPPFLAGS="$PHP_CFLAGS"
+ENV PHP_LDFLAGS="-Wl,-O1 -pie"
+
+# The pinned commit on php/php-src's PHP-7.4-CVE-2026-109618-109619 branch.
+ENV PHP_SRC_REPO="https://github.com/php/php-src.git"
+ENV PHP_SRC_COMMIT="712e60f9edfd03f0960fc4fc3c2c375f42b90aa2"
+ENV PHP_VERSION="7.4.34-derafu"
+
+RUN set -eux; \
+    mkdir -p /usr/src/php; \
+    cd /usr/src/php; \
+    git init -q; \
+    git remote add origin "$PHP_SRC_REPO"; \
+    git fetch -q --depth 1 origin "$PHP_SRC_COMMIT"; \
+    git checkout -q FETCH_HEAD; \
+    rm -rf .git; \
+    # php.net never released this as an official version; mark the build
+    # as not that. Matches whatever version string configure.ac's AC_INIT
+    # line actually has (not a hardcoded one), and fails the build loudly,
+    # instead of silently changing nothing, if that line's shape ever
+    # changes (e.g. a future revision of this patch bumps its own version).
+    grep -q '^AC_INIT(\[PHP\],\[[^]]*\],' configure.ac; \
+    sed -i -E "s/^(AC_INIT\(\[PHP\],\[)[^]]*(\],)/\1${PHP_VERSION}\2/" configure.ac; \
+    grep -q "^AC_INIT(\[PHP\],\[${PHP_VERSION}\]," configure.ac
+
+RUN set -eux; \
+    savedAptMark="$(apt-mark showmanual)"; \
+    apt-get update; \
+    apt-get install -y --no-install-recommends \
+        libargon2-dev \
+        libcurl4-openssl-dev \
+        libonig-dev \
+        libreadline-dev \
+        libsodium-dev \
+        libsqlite3-dev \
+        libssl-dev \
+        libxml2-dev \
+        zlib1g-dev \
+    ; \
+    \
+    export \
+        CFLAGS="$PHP_CFLAGS" \
+        CPPFLAGS="$PHP_CPPFLAGS" \
+        LDFLAGS="$PHP_LDFLAGS" \
+    ; \
+    cd /usr/src/php; \
+    ./buildconf --force; \
+    gnuArch="$(dpkg-architecture --query DEB_BUILD_GNU_TYPE)"; \
+    debMultiarch="$(dpkg-architecture --query DEB_BUILD_MULTIARCH)"; \
+# https://bugs.php.net/bug.php?id=74125
+    if [ ! -d /usr/include/curl ]; then \
+        ln -sT "/usr/include/$debMultiarch/curl" /usr/local/include/curl; \
+    fi; \
+    ./configure \
+        --build="$gnuArch" \
+        --with-config-file-path="$PHP_INI_DIR" \
+        --with-config-file-scan-dir="$PHP_INI_DIR/conf.d" \
+        --enable-option-checking=fatal \
+        --with-mhash \
+        --with-pic \
+        --enable-ftp \
+        --enable-mbstring \
+        --enable-mysqlnd \
+        --with-password-argon2 \
+        --with-sodium=shared \
+        --with-pdo-sqlite=/usr \
+        --with-sqlite3=/usr \
+        --with-curl \
+        --with-iconv \
+        --with-openssl \
+        --with-readline \
+        --with-zlib \
+        --disable-phpdbg \
+        --with-pear \
+        $(test "$gnuArch" = 's390x-linux-gnu' && echo '--without-pcre-jit') \
+        --with-libdir="lib/$debMultiarch" \
+        --disable-cgi \
+        --enable-fpm \
+        --with-fpm-user=www-data \
+        --with-fpm-group=www-data \
+    ; \
+    make -j "$(nproc)"; \
+    find -type f -name '*.a' -delete; \
+    make install; \
+    find \
+        /usr/local \
+        -type f \
+        -perm '/0111' \
+        -exec sh -euxc ' \
+            strip --strip-all "$@" || : \
+        ' -- '{}' + \
+    ; \
+    make clean; \
+# copy default example "php.ini" files somewhere easily discoverable
+    cp -v php.ini-* "$PHP_INI_DIR/"; \
+    \
+    cd /; \
+    \
+# docker-php-ext-install (used in the next stage, e.g. for gd/imap) relies
+# on docker-php-source extract, which expects a cached /usr/src/php.tar.xz
+# to re-extract from. We built from a git checkout, not a tarball, so there
+# is none; keep the already-built tree instead and mark it as already
+# extracted, which is the same thing docker-php-source itself checks for.
+    touch /usr/src/php/.docker-extracted; \
+    \
+# reset apt-mark's "manual" list so that "purge --auto-remove" will remove all build dependencies
+    apt-mark auto '.*' > /dev/null; \
+    [ -z "$savedAptMark" ] || apt-mark manual $savedAptMark; \
+    find /usr/local -type f -executable -exec ldd '{}' ';' \
+        | awk '/=>/ { print $(NF-1) }' \
+        | sort -u \
+        | xargs -r dpkg-query --search \
+        | cut -d: -f1 \
+        | sort -u \
+        | xargs -r apt-mark manual \
+    ; \
+    apt-get purge -y --auto-remove -o APT::AutoRemove::RecommendsImportant=false; \
+    rm -rf /var/lib/apt/lists/*; \
+    \
+    pecl update-channels; \
+    rm -rf /tmp/pear ~/.pearrc; \
+    \
+# smoke test
+    php --version
+
+# Same helper scripts the official image ships, taken from our own
+# (trusted, already-pulled) unpatched php:7.4-fpm image rather than fetched
+# again from elsewhere.
+COPY --from=php:7.4-fpm \
+    /usr/local/bin/docker-php-ext-configure \
+    /usr/local/bin/docker-php-ext-enable \
+    /usr/local/bin/docker-php-ext-install \
+    /usr/local/bin/docker-php-source \
+    /usr/local/bin/docker-php-entrypoint \
+    /usr/local/bin/
+
+# sodium was built as a shared module, so let's enable it too.
+RUN docker-php-ext-enable sodium
+
+WORKDIR /var/www/html
+
+RUN set -eux; \
+    cd /usr/local/etc; \
+    if [ -d php-fpm.d ]; then \
+        sed 's!=NONE/!=!g' php-fpm.conf.default | tee php-fpm.conf > /dev/null; \
+        cp php-fpm.d/www.conf.default php-fpm.d/www.conf; \
+    fi; \
+    { \
+        echo '[global]'; \
+        echo 'error_log = /proc/self/fd/2'; \
+        echo; echo 'log_limit = 8192'; \
+        echo; \
+        echo '[www]'; \
+        echo 'access.log = /proc/self/fd/2'; \
+        echo; \
+        echo 'clear_env = no'; \
+        echo; \
+        echo 'catch_workers_output = yes'; \
+        echo 'decorate_workers_output = no'; \
+    } | tee php-fpm.d/docker.conf; \
+    { \
+        echo '[global]'; \
+        echo 'daemonize = no'; \
+        echo; \
+        echo '[www]'; \
+        echo 'listen = 9000'; \
+    } | tee php-fpm.d/zz-docker.conf
+
+STOPSIGNAL SIGQUIT
+
+#
+# Stage 2: unchanged from before this patched-PHP work — same Caddy/sudo/
+# SSH/PHP-FPM hardening, just built on the patched PHP above instead of the
+# official (unpatched for this CVE) php:7.4-fpm image.
+#
+FROM php74-patched
+
+# Arguments.
+ARG CADDY_DEBUG=
+ARG OPCACHE_ENABLE=1
+ARG XDEBUG_ENABLE=0
+ARG NETWORK_TOOLS_ENABLE=0
+ARG PHP_DISABLE_FUNCTIONS=
+ARG WWW_ROOT_PATH=/var/www/sites
+ARG WWW_USER=admin
+ARG WWW_GROUP=www-data
 
 # Run a lot of commands :)
 RUN \
