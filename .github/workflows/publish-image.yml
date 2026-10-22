@@ -21,13 +21,19 @@ jobs:
     name: Build and publish (${{ matrix.name }})
     needs: test
     runs-on: ubuntu-latest
-    timeout-minutes: 90
+    timeout-minutes: 120
     permissions:
       contents: read
       packages: write
 
     strategy:
       fail-fast: false
+      # Sequential, not parallel: php-base (listed first) compiles PHP from
+      # source and warms the shared GHA cache; default/hardened only differ
+      # in their last layer, so they should hit that cache instead of each
+      # also compiling PHP from scratch at the same time nothing is cached
+      # for any of them yet.
+      max-parallel: 1
       matrix:
         include:
           # Solo el PHP 7.4 parchado para CVE-2026-109618/109619 (stage
