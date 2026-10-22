@@ -11,6 +11,10 @@ services:
     # Volumes.
     volumes:
       - ${VOLUME_CADDY:-./config/caddy}:/etc/caddy
+      # No SSH keys are baked into the image. To allow SSH access, mount
+      # your own authorized_keys (and optionally a client id_rsa/id_rsa.pub)
+      # here. entrypoint.sh fixes ownership/permissions on every start.
+      - ${VOLUME_SSH:-./config/ssh}:/home/${WWW_USER:-admin}/.ssh
 
     # Ports mapping to the host.
     ports:

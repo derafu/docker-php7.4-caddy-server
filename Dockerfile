@@ -3,10 +3,23 @@ FROM php:7.4-fpm
 
 # Arguments.
 ARG CADDY_DEBUG=
+ARG OPCACHE_ENABLE=1
+ARG XDEBUG_ENABLE=0
+ARG NETWORK_TOOLS_ENABLE=0
+ARG PHP_DISABLE_FUNCTIONS=
 ARG WWW_ROOT_PATH=/var/www/sites
 ARG WWW_USER=admin
 ARG WWW_GROUP=www-data
-ARG DEPLOYER_HOST=
+
+# Debian bullseye's live apt mirrors (deb.debian.org) no longer serve it;
+# switch to the point-in-time snapshot the base image already ships
+# commented out, so the build stays reproducible instead of depending on
+# current mirror state.
+RUN sed -i \
+        -e '/^deb http:\/\/deb\.debian\.org/s/^/#/' \
+        -e '/^# deb http:\/\/snapshot\.debian\.org/s/^# //' \
+        /etc/apt/sources.list \
+    && echo 'Acquire::Check-Valid-Until "false";' > /etc/apt/apt.conf.d/99no-check-valid-until
 
 # Run a lot of commands :)
 RUN \
@@ -14,7 +27,6 @@ RUN \
     # Install basic dependencies.
     apt-get update && apt-get install -y --no-install-recommends \
     apt-transport-https \
-    at \
     bind9-dnsutils \
     ca-certificates \
     cron \
@@ -53,19 +65,15 @@ RUN \
     mutt \
     nano \
     net-tools \
-    nmap \
     openssh-server \
     rsync \
     screen \
     sudo \
     supervisor \
-    tcpdump \
-    telnet \
     traceroute \
     unzip \
     vim \
     wget \
-    whois \
     zip \
     zlib1g-dev \
     \
@@ -119,12 +127,15 @@ RUN \
     # Create SSH directory.
     && mkdir -p /var/run/sshd \
     \
-    # Create admin user for SSH access.
+    # Create admin user for SSH access. No password is set here, and sudo
+    # is not passwordless: a password must be assigned later, only when
+    # actually needed, via `docker exec -u 0 <container> passwd admin`.
     && useradd -m -d /home/${WWW_USER} -s /bin/bash ${WWW_USER} \
+    && usermod -aG sudo ${WWW_USER} \
+    # The password hash is "*": SSH public-key login works (OpenSSH refuses
+    # any login method for a "locked", "!"-prefixed account), while su/sudo
+    # can never authenticate against it with any password, blank or not.
     && usermod -p '*' ${WWW_USER} \
-    && echo "${WWW_USER} ALL=(ALL) NOPASSWD: ALL" >> /etc/sudoers \
-    && chmod 0440 /etc/sudoers \
-    && chmod g+w /etc/passwd \
     && mkdir -p /home/${WWW_USER}/.ssh \
     && chmod 700 /home/${WWW_USER}/.ssh \
     && ssh-keyscan -t rsa github.com >> /home/${WWW_USER}/.ssh/known_hosts \
@@ -137,33 +148,22 @@ RUN \
     && chmod 770 ${WWW_ROOT_PATH} -R \
     && ln -s ${WWW_ROOT_PATH} /home/${WWW_USER}/sites \
     \
-    # Allow www-data and ${WWW_USER} users to add jobs to the at queue.
-    && echo "www-data" >> /etc/at.allow \
-    && echo "${WWW_USER}" >> /etc/at.allow \
-    \
     # Add SSH known hosts.
     && mkdir -p /etc/ssh \
     && ssh-keyscan github.com >> /etc/ssh/ssh_known_hosts \
-    && ( [ -n "${DEPLOYER_HOST}" ] && ssh-keyscan "${DEPLOYER_HOST}" >> /etc/ssh/ssh_known_hosts || true ) \
-    && chmod 644 /etc/ssh/ssh_known_hosts \
-    \
-    # Create deployer log file with correct permissions (or task cannot be executed).
-    && touch /var/log/deployer.log \
-    && chmod 666 /var/log/deployer.log
+    && chmod 644 /etc/ssh/ssh_known_hosts
 
-# Configure SSH client (this will include the config form the server, but is not used for SSH access).
-COPY config/ssh/ /home/${WWW_USER}/.ssh/
-RUN chown -R ${WWW_USER}:${WWW_USER} /home/${WWW_USER}/.ssh \
-    # Add SSH key for www-data user.
-    && mkdir -p /var/www/.ssh \
-    && ssh-keygen -t rsa -b 4096 -N "" -C "www-data@localhost" -f /var/www/.ssh/id_rsa -q \
-    && cat /var/www/.ssh/id_rsa.pub >> /home/${WWW_USER}/.ssh/authorized_keys \
-    && chown -R www-data:www-data /var/www/.ssh \
-    && chmod 700 /var/www/.ssh \
-    && chmod 600 /var/www/.ssh/id_rsa \
-    # Set correct permissions for authorized_keys and id_rsa.
-    && chmod 600 /home/${WWW_USER}/.ssh/authorized_keys || true \
-    && [ -f /home/${WWW_USER}/.ssh/id_rsa ] && chmod 600 /home/${WWW_USER}/.ssh/id_rsa || true
+# Install network/recon tools (nmap, tcpdump, telnet, whois), off by default.
+# Useful for debugging, but also useful to an attacker if the container is
+# ever compromised, so they are opt-in.
+RUN if [ "${NETWORK_TOOLS_ENABLE}" = "1" ]; then \
+        apt-get update && apt-get install -y --no-install-recommends \
+            nmap \
+            tcpdump \
+            telnet \
+            whois \
+        && rm -rf /var/lib/apt/lists/*; \
+    fi
 
 # Add configuration to .bashrc of the user.
 COPY config/bash/bashrc /root/add-to-bashrc
@@ -174,14 +174,21 @@ RUN cat /root/add-to-bashrc >> /home/${WWW_USER}/.bashrc \
 COPY config/php/php.ini /usr/local/etc/php/php.ini
 COPY config/php/www.conf /usr/local/etc/php-fpm.d/zz-docker.conf
 COPY config/php/xdebug.ini /usr/local/etc/php/conf.d/docker-php-ext-xdebug.ini
-RUN if [ -n "${CADDY_DEBUG}" ]; then \
-        # Disable OPCache by default in development mode.
+RUN if [ "${OPCACHE_ENABLE}" = "0" ]; then \
+        # Disable OPCache (independent of Caddy's debug mode).
         sed -i 's/^opcache.enable = 1/opcache.enable = 0/' /usr/local/etc/php/php.ini; \
         sed -i 's/^opcache.enable_cli = 1/opcache.enable_cli = 0/' /usr/local/etc/php/php.ini; \
-        # Enable Xdebug by default in development mode with debug mode (Xdebug 2.x syntax).
+    fi
+RUN if [ "${XDEBUG_ENABLE}" = "1" ]; then \
+        # Enable Xdebug (independent of Caddy's debug mode; Xdebug 2.x syntax).
         sed -i 's/^;zend_extension=xdebug.so/zend_extension=xdebug.so/' /usr/local/etc/php/conf.d/docker-php-ext-xdebug.ini; \
         sed -i 's/^xdebug.remote_enable = 0/xdebug.remote_enable = 1/' /usr/local/etc/php/conf.d/docker-php-ext-xdebug.ini; \
     fi
+# Fill in which functions to disable for PHP-FPM requests. Empty by default:
+# some apps (anything using sowerphp-framework's Controller::shell()/
+# shell_exec_async(), e.g. background task launching) need exec() from a web
+# request. Only set this for a site confirmed not to need any of them.
+RUN sed -i "s/__PHP_DISABLE_FUNCTIONS__/${PHP_DISABLE_FUNCTIONS}/" /usr/local/etc/php-fpm.d/zz-docker.conf
 
 # Install Composer.
 COPY --from=composer:latest /usr/bin/composer /usr/bin/composer
@@ -191,9 +198,6 @@ COPY config/caddy/Caddyfile /etc/caddy/Caddyfile
 
 # Configure SSH server.
 COPY config/ssh/sshd_config /etc/ssh/sshd_config
-
-# Configure Logrotate.
-COPY config/logrotate/deployer /etc/logrotate.d/deployer
 
 # Configure Cron.
 COPY config/cron/logrotate /etc/cron.d/logrotate

@@ -16,10 +16,13 @@ services:
       dockerfile: Dockerfile
       args:
         CADDY_DEBUG: ${CADDY_DEBUG:-}
+        OPCACHE_ENABLE: ${OPCACHE_ENABLE:-1}
+        XDEBUG_ENABLE: ${XDEBUG_ENABLE:-0}
+        NETWORK_TOOLS_ENABLE: ${NETWORK_TOOLS_ENABLE:-0}
+        PHP_DISABLE_FUNCTIONS: ${PHP_DISABLE_FUNCTIONS:-}
         WWW_ROOT_PATH: ${WWW_ROOT_PATH:-/var/www/sites}
         WWW_USER: ${WWW_USER:-admin}
         WWW_GROUP: ${WWW_GROUP:-www-data}
-        DEPLOYER_HOST: ${DEPLOYER_HOST:-}
 
     # Name of the container.
     container_name: ${SERVER_NAME:-php74-caddy}
@@ -36,11 +39,8 @@ services:
       WWW_ROOT_PATH: ${WWW_ROOT_PATH:-/var/www/sites}
       WWW_USER: ${WWW_USER:-admin}
       SITES_DIR: ${SITES_DIR:-/home/admin/sites}
-      DEPLOYER_DIR: ${DEPLOYER_DIR:-/home/admin/deployer}
-      DEPLOYER_HOST: ${DEPLOYER_HOST:-}
       EDITOR: ${EDITOR:-vim}
       VISUAL: ${VISUAL:-vim}
-      GITHUB_WEBHOOK_SECRET: ${GITHUB_WEBHOOK_SECRET:-}
 
     # Restart the container unless stopped.
     restart: unless-stopped
@@ -48,4 +48,3 @@ services:
     # Volumes.
     volumes:
       - ${VOLUME_SITES:-./sites}:${WWW_ROOT_PATH:-/var/www/sites}
-      - ${VOLUME_DEPLOYER:-./deployer}:${DEPLOYER_DIR:-/home/admin/deployer}

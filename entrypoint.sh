@@ -1,41 +1,35 @@
 #!/bin/bash
 set -e
 
-# Function to install or update Deployer.
-deployer-install() {
-    local dir="$1"
+# Expose select container environment variables to interactive shells.
+# SSH sessions don't inherit the container's own environment, so this makes
+# them available to config/bash/bashrc without needing sudo to read them
+# from /proc/1/environ.
+cat > /etc/container-env.sh <<EOF
+export EDITOR="${EDITOR:-vim}"
+export VISUAL="${VISUAL:-vim}"
+export SITES_DIR="${SITES_DIR:-/home/admin/sites}"
+EOF
+chmod 644 /etc/container-env.sh
 
-    # If the volume is empty, clone the repo.
-    if [ ! -d "$dir/.git" ]; then
-        echo "Deployer directory is empty. Cloning repository..."
-        rm -f "$dir/.empty"
-        git clone https://github.com/derafu/deployer.git "$dir"
-    else
-        git config --global --add safe.directory /home/admin/deployer
-        echo "Deployer repository found. Pulling latest changes..."
-        if ! git -C "$dir" pull; then
-            echo "Warning: Git pull failed. There may be uncommitted changes."
-        fi
-    fi
-
-    # Install dependencies.
-    composer install --working-dir="$dir"
-
-    # Adjust permissions (only if OWNER_GROUP is not empty).
-    OWNER_GROUP=$(stat -c "%u:%g" "$dir")
-    if [ -n "$OWNER_GROUP" ]; then
-        chown -R "$OWNER_GROUP" "$dir"
-    else
-        echo "Warning: Unable to determine owner/group for $dir"
-    fi
-}
+# Fix ownership/permissions on an optionally mounted ~/.ssh for WWW_USER.
+# No keys are baked into the image: SSH access only works if authorized_keys
+# (and optionally a client id_rsa/id_rsa.pub) are mounted there from the
+# host. SSH is strict about ownership/mode, which a host bind mount won't
+# generally match, so this re-applies them on every container start. If
+# files are added or changed after the container is already running,
+# restart it to have this run again.
+SSH_HOME="/home/${WWW_USER:-admin}/.ssh"
+if [ -d "${SSH_HOME}" ]; then
+    chown -R "${WWW_USER:-admin}:${WWW_USER:-admin}" "${SSH_HOME}"
+    chmod 700 "${SSH_HOME}"
+    [ -f "${SSH_HOME}/authorized_keys" ] && chmod 600 "${SSH_HOME}/authorized_keys"
+    [ -f "${SSH_HOME}/id_rsa" ] && chmod 600 "${SSH_HOME}/id_rsa"
+    [ -f "${SSH_HOME}/id_rsa.pub" ] && chmod 644 "${SSH_HOME}/id_rsa.pub"
+fi
 
 # Show the current user.
 echo "Current user: $(whoami)"
-
-# Install Deployer.
-# TODO: Uncomment this when the deployer is ready for PHP 7.4.
-# deployer-install "$DEPLOYER_DIR"
 
 # Run the main process (by default supervisord).
 exec "$@"

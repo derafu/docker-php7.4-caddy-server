@@ -7,7 +7,7 @@
 # Global configuration.
 {
 	{$CADDY_DEBUG}
-	email {$CADDY_EMAIL}
+	email {$CADDY_EMAIL:admin@example.com}
 
 	on_demand_tls {
 		ask http://localhost:9090/api/ask
@@ -75,19 +75,22 @@
 	# Add main logging.
 	log {
 		output file /var/log/caddy/access.log {
-			roll_size {$CADDY_LOG_SIZE}
-			roll_keep {$CADDY_LOG_KEEP}
+			roll_size {$CADDY_LOG_SIZE:100mb}
+			roll_keep {$CADDY_LOG_KEEP:5}
 		}
 	}
 
 	# TLS configuration at site level.
 	tls {
-		issuer {$CADDY_HTTPS_ISSUER}
+		issuer {$CADDY_HTTPS_ISSUER:internal}
 		on_demand
 	}
 
 	# Redirect non-www to www for main domains.
-	@non_www vars_regexp non_www {host} ^([^.]+)\.([^.]+)(\.local)?$
+	@non_www {
+		vars_regexp non_www {host} ^([^.]+)\.([^.]+)$
+		not host *.local
+	}
 	handle @non_www {
 		redir http://www.{re.non_www.1}.{re.non_www.2}{uri} permanent
 	}
@@ -95,7 +98,7 @@
 	# Local development domains (.local).
 	@local_domain vars_regexp local_domain {host} ^(.+)\.local$
 	handle @local_domain {
-		root * {$WWW_ROOT_PATH}/{re.local_domain.1}/public
+		root * {$WWW_ROOT_PATH:/var/www/sites}/{re.local_domain.1}/public
 		php_fastcgi unix//var/run/php/php-fpm.sock {
 			resolve_root_symlink
 			env PHP_ENV development
@@ -108,7 +111,7 @@
 		not host *.local
 	}
 	handle @production {
-		root * {$WWW_ROOT_PATH}/{real_domain}/current
+		root * {$WWW_ROOT_PATH:/var/www/sites}/{real_domain}/current
 		php_fastcgi unix//var/run/php/php-fpm.sock {
 			try_files public/index.php
 			resolve_root_symlink
@@ -122,21 +125,18 @@
 }
 
 #
-# On-demand TLS endpoint and Webhook Handler.
+# On-demand TLS endpoint.
 #
 # This endpoint is used to check if a domain is available for TLS.
 # It will return a 200 status if the domain is available, otherwise it will
 # return a 404 status.
-#
-# Also is used to handle webhooks sent to the server. The webhook is processed
-# by the {$WWW_ROOT_PATH}/.admin/webhook.php file.
 #
 :9090 {
 	# Handle TLS ask.
 	# Normalize the domain to the real domain.
 	# Check if the real domain exists as a directory in the {$WWW_ROOT_PATH}.
 	# If the real domain exists, return a 200 status.
-	root * {$WWW_ROOT_PATH}
+	root * {$WWW_ROOT_PATH:/var/www/sites}
 	map {query.domain} {domain_input} {
 		default "{query.domain}"
 	}
@@ -144,17 +144,10 @@
 	@ask <<CEL
         path('/api/ask')
         && {real_domain} != ""
-        && (file({'try_files': [{real_domain} + '/']}) || {$CADDY_HTTPS_ALLOW_ANY_HOST})
+        && (file({'try_files': [{real_domain} + '/']}) || {$CADDY_HTTPS_ALLOW_ANY_HOST:false})
     CEL
 	handle @ask {
 		respond "Domain {real_domain} is available." 200
-	}
-
-	# Handle webhooks.
-	@webhook path /api/webhook
-	handle @webhook {
-		rewrite * /.admin/webhook.php
-		php_fastcgi unix//var/run/php/php-fpm.sock
 	}
 
 	# Default response.
