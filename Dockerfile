@@ -10,7 +10,7 @@
 # there's no PGP signature to verify here the way an official release has.
 # PHP_EXTRA_VERSION marks the resulting build as non-official.
 #
-FROM debian:bullseye-slim AS php74-patched
+FROM debian:bullseye-slim AS derafu-php-74-fpm
 
 # Debian bullseye's live apt mirrors (deb.debian.org) no longer serve it;
 # switch to the point-in-time snapshot the base image already ships
@@ -241,7 +241,7 @@ STOPSIGNAL SIGQUIT
 # SSH/PHP-FPM hardening, just built on the patched PHP above instead of the
 # official (unpatched for this CVE) php:7.4-fpm image.
 #
-FROM php74-patched
+FROM derafu-php-74-fpm
 
 # Arguments.
 ARG CADDY_DEBUG=

@@ -1,0 +1,97 @@
+name: Test Image
+
+on:
+  workflow_call:
+
+jobs:
+  test:
+    name: Build and verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build image (single-platform, loaded locally)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64
+          load: true
+          tags: docker-php7.4-caddy-server:ci-test
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Verify the container actually runs, end to end
+        run: |
+          set -e
+
+          docker run -d --name ci-test \
+            -e CADDY_DEBUG= \
+            -e CADDY_EMAIL=admin@example.com \
+            -e CADDY_HTTPS_ISSUER=internal \
+            -e CADDY_HTTPS_ALLOW_ANY_HOST=false \
+            -e WWW_ROOT_PATH=/var/www/sites \
+            -e WWW_USER=admin \
+            -e SITES_DIR=/home/admin/sites \
+            -e EDITOR=vim \
+            -e VISUAL=vim \
+            docker-php7.4-caddy-server:ci-test
+
+          # Espera a que los 4 procesos supervisados reporten RUNNING, no a
+          # que el contenedor esté "Up" (eso solo dice que arrancó).
+          status=""
+          for i in $(seq 1 30); do
+            status=$(docker exec ci-test supervisorctl status 2>/dev/null || true)
+            if echo "$status" | grep -q "^caddy .*RUNNING" \
+                && echo "$status" | grep -q "^cron .*RUNNING" \
+                && echo "$status" | grep -q "^php-fpm .*RUNNING" \
+                && echo "$status" | grep -q "^sshd .*RUNNING"; then
+              break
+            fi
+            sleep 1
+          done
+          echo "$status"
+          echo "$status" | grep -q "^caddy .*RUNNING" || {
+            echo "::error::Caddy no llegó a RUNNING"
+            docker logs ci-test
+            exit 1
+          }
+          echo "$status" | grep -q "^php-fpm .*RUNNING" || {
+            echo "::error::php-fpm no llegó a RUNNING"
+            docker logs ci-test
+            exit 1
+          }
+
+          # Confirma que es el build parchado para CVE-2026-109618/109619,
+          # no el PHP oficial sin parchear.
+          version=$(docker exec ci-test php -v)
+          echo "$version"
+          echo "$version" | grep -q -- "-derafu" || {
+            echo "::error::La imagen no reporta el sufijo -derafu; ¿se construyó sobre el PHP oficial en vez del parchado?"
+            exit 1
+          }
+          docker exec ci-test bash -c 'strings /usr/local/bin/php | grep -q zend_mm_safe_error_ex' || {
+            echo "::error::Falta en el binario el símbolo del parche del CVE (zend_mm_safe_error_ex)"
+            exit 1
+          }
+
+          # Despacha una request real de punta a punta: Caddy -> on-demand TLS -> PHP-FPM.
+          docker exec ci-test bash -c '
+            mkdir -p /var/www/sites/www.ci-test.example/current/public
+            echo "<?php echo \"ci-test-ok\";" > /var/www/sites/www.ci-test.example/current/public/index.php
+            chown -R www-data:www-data /var/www/sites
+          '
+          response=$(docker exec ci-test curl -sk --http1.1 --resolve www.ci-test.example:443:127.0.0.1 https://www.ci-test.example/)
+          echo "$response"
+          echo "$response" | grep -q "ci-test-ok" || {
+            echo "::error::El dispatch real Caddy -> PHP-FPM no devolvió la respuesta esperada."
+            docker logs ci-test
+            exit 1
+          }
+
+          docker rm -f ci-test
